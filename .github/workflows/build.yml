@@ -26,11 +26,19 @@ jobs:
         echo "Cloned n8n repository successfully"
         echo "Current commit: $(git rev-parse HEAD)"
 
+    - name: Copy bypass script to n8n repository
+      run: |
+        if [ -f "bypass.sh" ]; then
+          cp bypass.sh n8n-source/
+          echo "bypass.sh copied to n8n-source directory"
+        else
+          echo "bypass.sh not found in current repository"
+        fi
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
 
     - name: Install pnpm
       uses: pnpm/action-setup@v2
@@ -46,7 +54,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('n8n-source/pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
 

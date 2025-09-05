@@ -36,6 +36,8 @@ echo -e "${YELLOW}Current branch: ${CURRENT_BRANCH}${NC}"
 # Check if license bypass is already applied
 LICENSE_FILE="packages/cli/src/license.ts"
 LICENSE_STATE_FILE="packages/@n8n/backend-common/src/license-state.ts"
+BANNER_FILE="packages/frontend/editor-ui/src/components/banners/NonProductionLicenseBanner.vue"
+DOCKER_FILE="docker/images/n8n/Dockerfile"
 
 if [[ ! -f "$LICENSE_FILE" ]]; then
     echo -e "${RED}Error: License file not found: $LICENSE_FILE${NC}"
@@ -122,6 +124,14 @@ sed -i 's/return this\.getValue('\''quota:maxTeamProjects'\'') ?? 0;/return 9999
 sed -i 's/return this\.getValue('\''quota:evaluations:maxWorkflows'\'') ?? 0;/return 99999;/' "$LICENSE_STATE_FILE"
 
 echo -e "${GREEN}✓ Applied license bypass to $LICENSE_STATE_FILE${NC}"
+
+# Disable NonProductionLicenseBanner
+if [[ -f "$BANNER_FILE" ]]; then
+    sed -i 's/<BaseBanner /<BaseBanner v-if="false" /' "$BANNER_FILE"
+fi
+
+# Update Dockerfile to have stable release type
+sed -i 's/^ARG N8N_RELEASE_TYPE=dev$/ARG N8N_RELEASE_TYPE=stable/' "$DOCKER_FILE"
 
 # Final check
 echo -e "${YELLOW}Checking git status...${NC}"

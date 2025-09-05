@@ -23,6 +23,14 @@ jobs:
       run: |
         git clone https://github.com/n8n-io/n8n.git n8n-source
         cd n8n-source
+        git fetch --tags
+
+        releases_json=$(curl -s https://api.github.com/repos/n8n-io/n8n/releases)
+        latest_stable_tag=$(echo "$releases_json" | jq -r '.[] | select(.prerelease == false) | .tag_name' | head -n 1)
+        if [ -n "$latest_stable_tag" ]; then
+          git checkout "$latest_stable_tag"
+        fi
+
         echo "Cloned n8n repository successfully"
         echo "Current commit: $(git rev-parse HEAD)"
 

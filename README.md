@@ -25,7 +25,8 @@ The workflow runs on:
 The workflow creates multiple tags for the Docker image:
 - `ghcr.io/mroplus/n8n:enterprise` - Main enterprise tag
 - `ghcr.io/mroplus/n8n:latest` - Latest build (only on master branch)
-- `ghcr.io/mroplus/n8n:<commit-sha>` - Specific commit version
+- `ghcr.io/mroplus/n8n:<commit-sha>` - Specific commit version from this repository
+- `ghcr.io/mroplus/n8n:n8n-<n8n-commit-hash>` - Specific n8n source repository commit version
 
 ## Required Permissions
 

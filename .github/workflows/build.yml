@@ -31,8 +31,10 @@ jobs:
           git checkout "$latest_stable_tag"
         fi
 
+        n8n_commit_hash=$(git rev-parse HEAD)
         echo "Cloned n8n repository successfully"
-        echo "Current commit: $(git rev-parse HEAD)"
+        echo "Current commit: $n8n_commit_hash"
+        echo "N8N_COMMIT_HASH=$n8n_commit_hash" >> $GITHUB_ENV
 
     - name: Copy bypass script to n8n repository
       run: |
@@ -127,16 +129,19 @@ jobs:
         fi
         
         echo "Found Docker image with ID: $IMAGE_ID"
+        echo "N8N commit hash: ${{ env.N8N_COMMIT_HASH }}"
         
         # Tag the image for GHCR
         docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
         docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
         
         # Push all tags
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
         
         echo "Successfully pushed Docker image to GHCR"
 

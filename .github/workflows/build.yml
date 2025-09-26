@@ -14,6 +14,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
 
     steps:
     - name: Checkout current repository
@@ -111,41 +114,99 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
           type=sha,prefix={{branch}}-
 
-    - name: Build Docker image
+    - name: Prepare platform tag
+      id: platform
       run: |
-        cd n8n-source
-        pnpm run build:docker
+        platform="${{ matrix.platform }}"
+        # Convert platform to safe tag format (linux/amd64 -> amd64, linux/arm64 -> arm64)
+        platform_tag=${platform##*/}
+        echo "tag=${platform_tag}" >> $GITHUB_OUTPUT
+        echo "Platform tag: ${platform_tag}"
 
-    - name: Tag and push Docker image
-      run: |
-        cd n8n-source
-        # Get the image ID from the build
-        IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep "n8n:" | head -1 | awk '{print $2}')
-        
-        if [ -z "$IMAGE_ID" ]; then
-          echo "Error: Could not find built n8n Docker image"
-          docker images
-          exit 1
-        fi
-        
-        echo "Found Docker image with ID: $IMAGE_ID"
-        echo "N8N commit hash: ${{ env.N8N_COMMIT_HASH }}"
-        
-        # Tag the image for GHCR
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
-        
-        # Push all tags
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
-        
-        echo "Successfully pushed Docker image to GHCR"
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: n8n-source
+        file: n8n-source/docker/images/n8n/Dockerfile
+        platforms: ${{ matrix.platform }}
+        push: true
+        provenance: false
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}-${{ steps.platform.outputs.tag }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ steps.platform.outputs.tag }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ steps.platform.outputs.tag }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}-${{ steps.platform.outputs.tag }}
+        build-args: |
+          TARGETPLATFORM=${{ matrix.platform }}
+          N8N_RELEASE_TYPE=stable
 
     - name: Clean up
       if: always()
       run: |
         docker system prune -f
+
+  create-manifest:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout current repository
+      uses: actions/checkout@v4
+
+    - name: Get N8N commit hash
+      run: |
+        # We need to get the N8N commit hash from the cloned repository
+        git clone https://github.com/n8n-io/n8n.git n8n-source
+        cd n8n-source
+        git fetch --tags
+        
+        releases_json=$(curl -s https://api.github.com/repos/n8n-io/n8n/releases)
+        latest_stable_tag=$(echo "$releases_json" | jq -r '.[] | select(.prerelease == false) | .tag_name' | head -n 1)
+        if [ -n "$latest_stable_tag" ]; then
+          git checkout "$latest_stable_tag"
+        fi
+        
+        n8n_commit_hash=$(git rev-parse HEAD)
+        echo "N8N_COMMIT_HASH=$n8n_commit_hash" >> $GITHUB_ENV
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create and push multi-arch manifests
+      run: |
+        # Create multi-arch manifest for enterprise tag
+        docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}-amd64 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}-arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+        # Create multi-arch manifest for latest tag
+        docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+        # Create multi-arch manifest for commit sha tag
+        docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-amd64 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+        # Create multi-arch manifest for n8n commit hash tag
+        docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }} \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}-amd64 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}-arm64
+        docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
+
+        echo "Successfully created and pushed multi-arch manifests"
+        echo "Multi-arch images available at:"
+        echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+        echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+        echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}"

@@ -95,9 +95,12 @@ jobs:
         platforms: linux/amd64,linux/arm64
 
     - name: Set up Docker Buildx
+      id: buildx
       uses: docker/setup-buildx-action@v3
       with:
         platforms: linux/amd64,linux/arm64
+        driver-opts: |
+          network=host
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -105,21 +108,6 @@ jobs:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Find Dockerfile
-      run: |
-        cd n8n-source
-        if [ -f "docker/images/n8n/Dockerfile" ]; then
-          echo "DOCKERFILE_PATH=docker/images/n8n/Dockerfile" >> $GITHUB_ENV
-          echo "DOCKER_CONTEXT=." >> $GITHUB_ENV
-        elif [ -f "Dockerfile" ]; then
-          echo "DOCKERFILE_PATH=Dockerfile" >> $GITHUB_ENV
-          echo "DOCKER_CONTEXT=." >> $GITHUB_ENV
-        else
-          echo "Error: Could not find Dockerfile"
-          find . -name "Dockerfile" -type f
-          exit 1
-        fi
 
     - name: Build and push multi-architecture Docker image
       run: |
@@ -141,6 +129,12 @@ jobs:
         fi
         
         echo "Using Dockerfile: $DOCKERFILE_PATH"
+        
+        # List available builders
+        docker buildx ls
+        
+        # Use the builder created by setup-buildx-action
+        docker buildx use ${{ steps.buildx.outputs.name }}
         
         # Build and push multi-architecture image
         docker buildx build \
@@ -165,4 +159,8 @@ jobs:
     - name: Clean up
       if: always()
       run: |
-        docker system prune -f
+        # Clean up docker resources, but don't fail if there are context issues
+        docker system prune -f || echo "Docker cleanup completed with warnings"
+        
+        # Clean up any dangling buildx builders
+        docker buildx prune -f || echo "Buildx cleanup completed with warnings"

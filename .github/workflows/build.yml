@@ -89,8 +89,15 @@ jobs:
         cd n8n-source
         pnpm run build
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -99,51 +106,61 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=raw,value=${{ env.IMAGE_TAG }}
-          type=raw,value=latest,enable={{is_default_branch}}
-          type=sha,prefix={{branch}}-
-
-    - name: Build Docker image
+    - name: Find Dockerfile
       run: |
         cd n8n-source
-        pnpm run build:docker
+        if [ -f "docker/images/n8n/Dockerfile" ]; then
+          echo "DOCKERFILE_PATH=docker/images/n8n/Dockerfile" >> $GITHUB_ENV
+          echo "DOCKER_CONTEXT=." >> $GITHUB_ENV
+        elif [ -f "Dockerfile" ]; then
+          echo "DOCKERFILE_PATH=Dockerfile" >> $GITHUB_ENV
+          echo "DOCKER_CONTEXT=." >> $GITHUB_ENV
+        else
+          echo "Error: Could not find Dockerfile"
+          find . -name "Dockerfile" -type f
+          exit 1
+        fi
 
-    - name: Tag and push Docker image
+    - name: Build and push multi-architecture Docker image
       run: |
         cd n8n-source
-        # Get the image ID from the build
-        IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep "n8n:" | head -1 | awk '{print $2}')
         
-        if [ -z "$IMAGE_ID" ]; then
-          echo "Error: Could not find built n8n Docker image"
-          docker images
+        # Get the current n8n commit hash
+        N8N_COMMIT=$(git rev-parse HEAD)
+        echo "N8N Commit: $N8N_COMMIT"
+        
+        # Find the correct Dockerfile path
+        if [ -f "docker/images/n8n/Dockerfile" ]; then
+          DOCKERFILE_PATH="docker/images/n8n/Dockerfile"
+        elif [ -f "Dockerfile" ]; then
+          DOCKERFILE_PATH="Dockerfile"
+        else
+          echo "Error: Could not find Dockerfile"
+          find . -name "Dockerfile" -type f
           exit 1
         fi
         
-        echo "Found Docker image with ID: $IMAGE_ID"
-        echo "N8N commit hash: ${{ env.N8N_COMMIT_HASH }}"
+        echo "Using Dockerfile: $DOCKERFILE_PATH"
         
-        # Tag the image for GHCR
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
+        # Build and push multi-architecture image
+        docker buildx build \
+          --platform linux/amd64,linux/arm64 \
+          --file "$DOCKERFILE_PATH" \
+          --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" \
+          --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+          --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+          --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${N8N_COMMIT}" \
+          --label "org.opencontainers.image.title=n8n Enterprise" \
+          --label "org.opencontainers.image.description=n8n Enterprise Docker Image" \
+          --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+          --label "org.opencontainers.image.revision=${{ github.sha }}" \
+          --label "n8n.commit.hash=${N8N_COMMIT}" \
+          --cache-from type=gha \
+          --cache-to type=gha,mode=max \
+          --push \
+          .
         
-        # Push all tags
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
-        
-        echo "Successfully pushed Docker image to GHCR"
+        echo "Successfully pushed multi-architecture Docker image to GHCR"
 
     - name: Clean up
       if: always()

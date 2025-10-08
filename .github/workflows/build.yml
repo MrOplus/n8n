@@ -124,17 +124,35 @@ jobs:
         echo "Available Docker images:"
         docker images
         
-        # Try to find the built n8n image with multiple patterns
-        IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(n8nio/n8n|n8n-io/n8n|n8n:)" | head -1 | awk '{print $2}')
+        echo "Available Podman images:"
+        podman images
         
-        # If not found, try to get the most recently built image
-        if [ -z "$IMAGE_ID" ]; then
-          echo "Trying to find most recent image..."
-          IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" | grep -v "REPOSITORY" | sort -k3 -r | head -1 | awk '{print $2}')
+        # The n8n build process uses podman, so look for the image there first
+        echo "Looking for n8n image in podman registry..."
+        PODMAN_IMAGE=$(podman images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(localhost/n8nio/n8n|n8nio/n8n)" | head -1)
+        
+        if [ -n "$PODMAN_IMAGE" ]; then
+          PODMAN_IMAGE_NAME=$(echo "$PODMAN_IMAGE" | awk '{print $1":"$2}')
+          PODMAN_IMAGE_ID=$(echo "$PODMAN_IMAGE" | awk '{print $3}')
+          echo "Found podman image: $PODMAN_IMAGE_NAME (ID: $PODMAN_IMAGE_ID)"
+          
+          # Save the podman image and load it into docker
+          echo "Transferring image from podman to docker..."
+          podman save "$PODMAN_IMAGE_NAME" | docker load
+          
+          # Now find it in docker (it should appear with the same name)
+          echo "Checking docker registry after transfer..."
+          docker images
+          IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(n8nio/n8n|localhost/n8nio/n8n)" | head -1 | awk '{print $2}')
+        else
+          # Fallback: try to find directly in docker (unlikely but possible)
+          echo "Image not found in podman, checking docker..."
+          IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(n8nio/n8n|n8n-io/n8n)" | head -1 | awk '{print $2}')
         fi
         
         if [ -z "$IMAGE_ID" ]; then
-          echo "Error: Could not find any suitable Docker image"
+          echo "Error: Could not find n8n Docker image in either docker or podman"
+          echo "Expected image patterns: localhost/n8nio/n8n, n8nio/n8n, or n8n-io/n8n"
           exit 1
         fi
         

@@ -119,29 +119,36 @@ jobs:
     - name: Tag and push Docker image
       run: |
         cd n8n-source
-        # Get the image ID from the build
-        IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep "n8n:" | head -1 | awk '{print $2}')
+        
+        # List all available images for debugging
+        echo "Available Docker images:"
+        docker images
+        
+        # Try to find the built n8n image with multiple patterns
+        IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(n8nio/n8n|n8n-io/n8n|n8n:)" | head -1 | awk '{print $2}')
+        
+        # If not found, try to get the most recently built image
+        if [ -z "$IMAGE_ID" ]; then
+          echo "Trying to find most recent image..."
+          IMAGE_ID=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" | grep -v "REPOSITORY" | sort -k3 -r | head -1 | awk '{print $2}')
+        fi
         
         if [ -z "$IMAGE_ID" ]; then
-          echo "Error: Could not find built n8n Docker image"
-          docker images
+          echo "Error: Could not find any suitable Docker image"
           exit 1
         fi
         
         echo "Found Docker image with ID: $IMAGE_ID"
-        echo "N8N commit hash: ${{ env.N8N_COMMIT_HASH }}"
         
-        # Tag the image for GHCR
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
-        
-        # Push all tags
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
+        # Tag the image with all the metadata tags
+        echo "Tagging and pushing images..."
+        IFS=$'\n'
+        for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n'); do
+          echo "Tagging: $tag"
+          docker tag $IMAGE_ID $tag
+          echo "Pushing: $tag"
+          docker push $tag
+        done
         
         echo "Successfully pushed Docker image to GHCR"
 

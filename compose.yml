@@ -1,0 +1,17 @@
+services:
+  n8n:
+    image: ghcr.io/mroplus/n8n:enterprise
+    ports:
+      - "5678:5678"      
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped   
+    environment:
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      
+volumes:
+  n8n_data:
+    external: true
+
+      

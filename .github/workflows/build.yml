@@ -132,8 +132,10 @@ jobs:
         PODMAN_IMAGE=$(podman images --format "table {{.Repository}}:{{.Tag}}\t{{.ID}}" | grep -E "(localhost/n8nio/n8n|n8nio/n8n)" | head -1)
         
         if [ -n "$PODMAN_IMAGE" ]; then
-          PODMAN_IMAGE_NAME=$(echo "$PODMAN_IMAGE" | awk '{print $1":"$2}')
+          PODMAN_REPO=$(echo "$PODMAN_IMAGE" | awk '{print $1}')
+          PODMAN_TAG=$(echo "$PODMAN_IMAGE" | awk '{print $2}')
           PODMAN_IMAGE_ID=$(echo "$PODMAN_IMAGE" | awk '{print $3}')
+          PODMAN_IMAGE_NAME="${PODMAN_REPO}:${PODMAN_TAG}"
           echo "Found podman image: $PODMAN_IMAGE_NAME (ID: $PODMAN_IMAGE_ID)"
           
           # Save the podman image and load it into docker

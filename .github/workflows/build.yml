@@ -139,13 +139,31 @@ jobs:
         fi
         
         echo "Found Docker image with ID: $IMAGE_ID"
+        echo "N8N commit hash: ${{ env.N8N_COMMIT_HASH }}"
         
-        # Tag the image with all the metadata tags
-        echo "Tagging and pushing images..."
+        # Tag the image for GHCR with your custom tags
+        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker tag $IMAGE_ID ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
+        
+        # Also tag with metadata-generated tags for additional flexibility
+        echo "Adding metadata-generated tags..."
         IFS=$'\n'
         for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n'); do
           echo "Tagging: $tag"
           docker tag $IMAGE_ID $tag
+        done
+        
+        # Push your custom tags
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:n8n-${{ env.N8N_COMMIT_HASH }}
+        
+        # Push metadata-generated tags
+        echo "Pushing metadata-generated tags..."
+        for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n'); do
           echo "Pushing: $tag"
           docker push $tag
         done

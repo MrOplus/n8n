@@ -99,10 +99,11 @@ echo -e "${GREEN}✓ Applied license bypass to $LICENSE_FILE${NC}"
 # Apply license bypass to license-state.ts
 echo -e "${YELLOW}Applying license bypass to $LICENSE_STATE_FILE...${NC}"
 
-# Replace isLicensed method to always return true
-sed -i '/isLicensed(feature: BooleanLicenseFeature) {/,/}/ {
-    /return this\.licenseProvider\.isLicensed(feature);/c\
-                return true;
+# Replace isLicensed method to always return true (handles both single feature and array)
+sed -i '/isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/,/^[[:space:]]*}$/ {
+    /this\.assertProvider();/a\
+\		return true;
+    /if (typeof feature/,/return false;/d
 }' "$LICENSE_STATE_FILE"
 
 # Replace isAPIDisabled to return false (ensure API access is enabled)
@@ -125,9 +126,16 @@ sed -i 's/return this\.getValue('\''quota:evaluations:maxWorkflows'\'') ?? 0;/re
 
 echo -e "${GREEN}✓ Applied license bypass to $LICENSE_STATE_FILE${NC}"
 
-# Disable NonProductionLicenseBanner
-if [[ -f "$BANNER_FILE" ]]; then
+# Disable NonProductionLicenseBanner (new location and structure)
+NEW_BANNER_FILE="packages/frontend/editor-ui/src/features/shared/banners/components/banners/NonProductionLicenseBanner.vue"
+if [[ -f "$NEW_BANNER_FILE" ]]; then
+    echo -e "${YELLOW}Disabling NonProductionLicenseBanner...${NC}"
+    sed -i 's/<BaseBanner name="NON_PRODUCTION_LICENSE"/<BaseBanner v-if="false" name="NON_PRODUCTION_LICENSE"/' "$NEW_BANNER_FILE"
+    echo -e "${GREEN}✓ Disabled NonProductionLicenseBanner${NC}"
+elif [[ -f "$BANNER_FILE" ]]; then
+    echo -e "${YELLOW}Disabling NonProductionLicenseBanner (old location)...${NC}"
     sed -i 's/<BaseBanner /<BaseBanner v-if="false" /' "$BANNER_FILE"
+    echo -e "${GREEN}✓ Disabled NonProductionLicenseBanner${NC}"
 fi
 
 # Update Dockerfile to have stable release type

@@ -89,6 +89,12 @@ sed -i '/isAPIDisabled() {/,/}/ {
     s/return true;/return false;/
 }' "$LICENSE_FILE"
 
+# Ensure all specific license check methods return true
+sed -i 's/isWorkerViewLicensed() {/isWorkerViewLicensed() {\n\t\treturn true;/g' "$LICENSE_FILE"
+sed -i '/isWorkerViewLicensed() {/,/}/ {
+    /return this\.isLicensed/d
+}' "$LICENSE_FILE"
+
 # Replace quota methods to return unlimited values
 sed -i 's/return this\.getValue(LICENSE_QUOTAS\.USERS_LIMIT) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
 sed -i 's/return this\.getValue(LICENSE_QUOTAS\.TRIGGER_LIMIT) ?? UNLIMITED_LICENSE_QUOTA;/return UNLIMITED_LICENSE_QUOTA;/' "$LICENSE_FILE"
@@ -147,6 +153,21 @@ sed -i 's/return this\.getValue('\''quota:evaluations:maxWorkflows'\'') ?? 0;/re
 
 echo -e "${GREEN}✓ Applied license bypass to $LICENSE_STATE_FILE${NC}"
 
+# Apply additional frontend service bypasses for menu visibility
+FRONTEND_SERVICE_FILE="packages/cli/src/services/frontend.service.ts"
+if [[ -f "$FRONTEND_SERVICE_FILE" ]]; then
+    echo -e "${YELLOW}Applying frontend service license bypasses...${NC}"
+    
+    # Ensure all license-gated features are reported as enabled in frontend settings
+    # Replace any license checks that might hide menu items
+    sed -i 's/this\.license\.isVariablesEnabled()/true/g' "$FRONTEND_SERVICE_FILE"
+    sed -i 's/this\.licenseState\.isVariablesLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
+    sed -i 's/this\.license\.isWorkerViewLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
+    sed -i 's/this\.licenseState\.isWorkerViewLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
+    
+    echo -e "${GREEN}✓ Applied frontend service bypasses${NC}"
+fi
+
 # Disable NonProductionLicenseBanner (new location and structure)
 NEW_BANNER_FILE="packages/frontend/editor-ui/src/features/shared/banners/components/banners/NonProductionLicenseBanner.vue"
 if [[ -f "$NEW_BANNER_FILE" ]]; then
@@ -192,3 +213,4 @@ fi
 
 echo -e "${GREEN}Script completed successfully!${NC}"
 echo -e "${YELLOW}n8n is now ready for development with all license restrictions bypassed.${NC}"
+echo -e "${YELLOW}Note: You must rebuild n8n (pnpm run build) for changes to take effect.${NC}"

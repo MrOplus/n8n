@@ -106,14 +106,26 @@ echo -e "${GREEN}✓ Applied license bypass to $LICENSE_FILE${NC}"
 echo -e "${YELLOW}Applying license bypass to $LICENSE_STATE_FILE...${NC}"
 
 # Replace isLicensed method to always return true (handles both single feature and array)
-# This is a more precise replacement that preserves the method structure
-sed -i '/isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/,/^[[:space:]]*}$/ {
-    /isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/!{
-        /^[[:space:]]*}$/!d
+# Use a simpler approach: find the method and replace its entire body
+awk '
+/isLicensed\(feature: BooleanLicenseFeature \| BooleanLicenseFeature\[\]\) \{/ {
+    print
+    print "\t\treturn true;"
+    in_method = 1
+    brace_count = 1
+    next
+}
+in_method {
+    if (/\{/) brace_count++
+    if (/\}/) brace_count--
+    if (brace_count == 0) {
+        print "\t}"
+        in_method = 0
     }
-    /isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/a\
-\		return true;
-}' "$LICENSE_STATE_FILE"
+    next
+}
+{ print }
+' "$LICENSE_STATE_FILE" > "$LICENSE_STATE_FILE.tmp" && mv "$LICENSE_STATE_FILE.tmp" "$LICENSE_STATE_FILE"
 
 # Replace isAPIDisabled to return false (ensure API access is enabled)
 sed -i '/isAPIDisabled() {/,/}/ {

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Script to apply license bypass modifications for development
 # This script applies the license bypass changes from commit 869baecb059671281df20ede76413c20f78bfbfc
@@ -6,6 +6,12 @@
 # Usage:
 #   ./apply-license-bypass.sh           # Interactive mode
 #   ./apply-license-bypass.sh --auto    # Non-interactive mode for CI/CD
+
+# Ensure we're running with bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "This script requires bash. Please run it with: bash $0"
+    exit 1
+fi
 
 set -e
 
@@ -100,10 +106,13 @@ echo -e "${GREEN}✓ Applied license bypass to $LICENSE_FILE${NC}"
 echo -e "${YELLOW}Applying license bypass to $LICENSE_STATE_FILE...${NC}"
 
 # Replace isLicensed method to always return true (handles both single feature and array)
+# This is a more precise replacement that preserves the method structure
 sed -i '/isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/,/^[[:space:]]*}$/ {
-    /this\.assertProvider();/a\
+    /isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/!{
+        /^[[:space:]]*}$/!d
+    }
+    /isLicensed(feature: BooleanLicenseFeature | BooleanLicenseFeature\[\]) {/a\
 \		return true;
-    /if (typeof feature/,/return false;/d
 }' "$LICENSE_STATE_FILE"
 
 # Replace isAPIDisabled to return false (ensure API access is enabled)

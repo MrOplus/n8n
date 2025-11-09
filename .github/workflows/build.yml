@@ -77,6 +77,8 @@ jobs:
       run: |
         cd n8n-source
         if [ -f "bypass.sh" ]; then
+          # Convert Windows line endings to Unix
+          sed -i 's/\r$//' bypass.sh
           chmod +x bypass.sh
           ./bypass.sh --auto
           echo "bypass.sh executed successfully with --auto mode"

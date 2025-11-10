@@ -153,6 +153,15 @@ sed -i 's/return this\.getValue('\''quota:evaluations:maxWorkflows'\'') ?? 0;/re
 
 echo -e "${GREEN}✓ Applied license bypass to $LICENSE_STATE_FILE${NC}"
 
+# Fix frontend Variables tab visibility in ProjectTabs.vue
+PROJECT_TABS_FILE="packages/frontend/editor-ui/src/features/collaboration/projects/components/ProjectTabs.vue"
+if [[ -f "$PROJECT_TABS_FILE" ]]; then
+    echo -e "${YELLOW}Fixing Variables tab visibility in ProjectTabs.vue...${NC}"
+    # Replace the conditional Variables tab with unconditional one
+    sed -i "s/if (props.pageType === 'overview' || isTeamProject.value) {/if (true) {/" "$PROJECT_TABS_FILE"
+    echo -e "${GREEN}✓ Fixed Variables tab visibility${NC}"
+fi
+
 # Disable NonProductionLicenseBanner (new location and structure)
 NEW_BANNER_FILE="packages/frontend/editor-ui/src/features/shared/banners/components/banners/NonProductionLicenseBanner.vue"
 if [[ -f "$NEW_BANNER_FILE" ]]; then

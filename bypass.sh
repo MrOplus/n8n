@@ -153,21 +153,6 @@ sed -i 's/return this\.getValue('\''quota:evaluations:maxWorkflows'\'') ?? 0;/re
 
 echo -e "${GREEN}✓ Applied license bypass to $LICENSE_STATE_FILE${NC}"
 
-# Apply additional frontend service bypasses for menu visibility
-FRONTEND_SERVICE_FILE="packages/cli/src/services/frontend.service.ts"
-if [[ -f "$FRONTEND_SERVICE_FILE" ]]; then
-    echo -e "${YELLOW}Applying frontend service license bypasses...${NC}"
-    
-    # Ensure all license-gated features are reported as enabled in frontend settings
-    # Replace any license checks that might hide menu items
-    sed -i 's/this\.license\.isVariablesEnabled()/true/g' "$FRONTEND_SERVICE_FILE"
-    sed -i 's/this\.licenseState\.isVariablesLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
-    sed -i 's/this\.license\.isWorkerViewLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
-    sed -i 's/this\.licenseState\.isWorkerViewLicensed()/true/g' "$FRONTEND_SERVICE_FILE"
-    
-    echo -e "${GREEN}✓ Applied frontend service bypasses${NC}"
-fi
-
 # Disable NonProductionLicenseBanner (new location and structure)
 NEW_BANNER_FILE="packages/frontend/editor-ui/src/features/shared/banners/components/banners/NonProductionLicenseBanner.vue"
 if [[ -f "$NEW_BANNER_FILE" ]]; then

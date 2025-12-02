@@ -2,6 +2,29 @@
 
 This repository contains a GitHub Actions workflow that automatically builds and pushes n8n Docker images to GitHub Container Registry (GHCR).
 
+## HTTP Timeout Patch for LLM Support
+
+This repository includes the HTTP timeout patch from [Piggeldi2013/n8n-timeout-patch](https://github.com/Piggeldi2013/n8n-timeout-patch) to support long-running LLM requests without timeouts.
+
+### What the Patch Does
+
+- **Inbound Server Timeouts**: Relaxes Node.js HTTP(S) server timeouts that affect browser -> n8n connections
+- **Outbound Fetch Timeouts**: Configures undici (Node fetch) timeouts for n8n -> LLM/API connections
+
+### Timeout Environment Variables
+
+The following environment variables are preconfigured in `compose.yml`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `N8N_HTTP_REQUEST_TIMEOUT` | 0 | Disable per-request timeout |
+| `N8N_HTTP_HEADERS_TIMEOUT` | 120000 | 2 minutes; must be > keep-alive |
+| `N8N_HTTP_KEEPALIVE_TIMEOUT` | 65000 | 65 seconds |
+| `FETCH_HEADERS_TIMEOUT` | 1800000 | 30 min for response headers |
+| `FETCH_BODY_TIMEOUT` | 12000000 | 200 min for full body/stream |
+| `FETCH_CONNECT_TIMEOUT` | 600000 | 10 min for connection |
+| `FETCH_KEEPALIVE_TIMEOUT` | 65000 | 65 seconds |
+
 ## Workflow Overview
 
 The workflow (`build-and-push.yml`) performs the following steps:

@@ -11,7 +11,16 @@ This repository includes the HTTP timeout patch from [Piggeldi2013/n8n-timeout-p
 - **Inbound Server Timeouts**: Relaxes Node.js HTTP(S) server timeouts that affect browser -> n8n connections (always applied)
 - **Outbound Fetch Timeouts**: Configures undici (Node fetch) timeouts for n8n -> LLM/API connections (applied when undici module is available)
 
-**Note**: The patch automatically detects whether the `undici` module is available. If undici is not found in the Node.js module path, the outbound fetch timeout patching is skipped gracefully while inbound server timeout patching still applies. The n8n Docker image includes undici as a dependency, so both patches should work in the Docker environment.
+### Docker Image Extension
+
+The repository includes a `Dockerfile` that extends the base n8n image by installing the `undici` module into a known path (`/opt/extra/node_modules`). This ensures the timeout patch can properly configure outbound fetch timeouts.
+
+The Dockerfile:
+1. Uses the base n8n image
+2. Installs undici@7 to `/opt/extra`
+3. Sets `NODE_PATH=/opt/extra/node_modules` so Node.js can find undici
+
+**Note**: The patch automatically detects whether the `undici` module is available. If undici is not found in the Node.js module path, the outbound fetch timeout patching is skipped gracefully while inbound server timeout patching still applies.
 
 ### Timeout Environment Variables
 
@@ -29,14 +38,15 @@ The following environment variables are preconfigured in `compose.yml`:
 
 ## Workflow Overview
 
-The workflow (`build-and-push.yml`) performs the following steps:
+The workflow (`build.yml`) performs the following steps:
 
 1. **Clone n8n Repository**: Clones the official n8n repository from `https://github.com/n8n-io/n8n`
-2. **Setup Environment**: Installs Node.js 18 and pnpm package manager
+2. **Setup Environment**: Installs Node.js 22 and pnpm package manager
 3. **Install Dependencies**: Runs `pnpm install --frozen-lockfile`
 4. **Build Project**: Executes `pnpm run build`
-5. **Build Docker Image**: Runs `pnpm run build:docker`
-6. **Push to GHCR**: Tags and pushes the image to `ghcr.io/mroplus/n8n:enterprise`
+5. **Build Base Docker Image**: Runs `pnpm run build:docker`
+6. **Extend with Undici**: Builds extended image using `Dockerfile` which adds undici module
+7. **Push to GHCR**: Tags and pushes the image to `ghcr.io/mroplus/n8n:enterprise`
 
 ## Triggers
 

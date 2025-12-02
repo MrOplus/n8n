@@ -28,7 +28,7 @@
     for (const modulePath of possiblePaths) {
       try {
         return require(modulePath);
-      } catch {
+      } catch (_e) {
         // Continue to next path
       }
     }
@@ -103,6 +103,6 @@
       `keepAliveTimeout=${keepAliveTimeout}ms`
     );
   } catch (e) {
-    console.warn('[patch] undici patching failed:', e?.message || e);
+    console.warn('[patch] failed to configure undici dispatcher:', e?.message || e);
   }
 })();

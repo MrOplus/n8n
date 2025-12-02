@@ -5,10 +5,22 @@ services:
       - "5678:5678"      
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./patch-http-timeouts.js:/opt/patches/patch-http-timeouts.js:ro
     restart: unless-stopped   
     environment:
       - NODE_FUNCTION_ALLOW_EXTERNAL=*
       - NODE_FUNCTION_ALLOW_BUILTIN=*
+      # HTTP timeout patch settings - load the patch on node startup
+      - NODE_OPTIONS=--require /opt/patches/patch-http-timeouts.js
+      # Inbound server timeouts (browser -> n8n)
+      - N8N_HTTP_REQUEST_TIMEOUT=0       # 0 = disable per-request timeout
+      - N8N_HTTP_HEADERS_TIMEOUT=120000  # 2 minutes; must be > keep-alive
+      - N8N_HTTP_KEEPALIVE_TIMEOUT=65000 # 65 seconds
+      # Outbound fetch/undici timeouts (n8n -> LLM/API)
+      - FETCH_HEADERS_TIMEOUT=1800000   # time allowed to receive response headers (30 min)
+      - FETCH_BODY_TIMEOUT=12000000     # total time allowed to receive the body/stream (200 min)
+      - FETCH_CONNECT_TIMEOUT=600000    # total time for waiting for a connect (10 min)
+      - FETCH_KEEPALIVE_TIMEOUT=65000   # 65 seconds
       
 volumes:
   n8n_data:

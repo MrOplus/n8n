@@ -8,8 +8,10 @@ This repository includes the HTTP timeout patch from [Piggeldi2013/n8n-timeout-p
 
 ### What the Patch Does
 
-- **Inbound Server Timeouts**: Relaxes Node.js HTTP(S) server timeouts that affect browser -> n8n connections
-- **Outbound Fetch Timeouts**: Configures undici (Node fetch) timeouts for n8n -> LLM/API connections
+- **Inbound Server Timeouts**: Relaxes Node.js HTTP(S) server timeouts that affect browser -> n8n connections (always applied)
+- **Outbound Fetch Timeouts**: Configures undici (Node fetch) timeouts for n8n -> LLM/API connections (applied when undici module is available)
+
+**Note**: The patch automatically detects whether the `undici` module is available. If undici is not found in the Node.js module path, the outbound fetch timeout patching is skipped gracefully while inbound server timeout patching still applies. The n8n Docker image includes undici as a dependency, so both patches should work in the Docker environment.
 
 ### Timeout Environment Variables
 

@@ -43,7 +43,7 @@ jobs:
 
     steps:
     - name: Checkout current repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Resolve n8n version to build
       id: get_version
@@ -92,7 +92,7 @@ jobs:
         echo "Build key:  $build_key"
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -128,7 +128,7 @@ jobs:
 
     steps:
     - name: Checkout current repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Clone n8n repository
       env:
@@ -154,12 +154,12 @@ jobs:
         echo "bypass.sh copied to n8n-source"
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: '24'
 
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         # Deliberately NOT `version: latest`. n8n pins `packageManager` (pnpm
         # 11.25.0 as of n8n@2.39.8) and pnpm 12 made `pnpm deploy` reject
@@ -172,7 +172,7 @@ jobs:
       run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
     - name: Setup pnpm cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ env.STORE_PATH }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles('n8n-source/pnpm-lock.yaml') }}
@@ -203,7 +203,7 @@ jobs:
     # and the image lands in the local daemon for the tag-and-push step below.
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}

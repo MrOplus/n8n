@@ -161,7 +161,12 @@ jobs:
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       with:
-        version: latest
+        # Deliberately NOT `version: latest`. n8n pins `packageManager` (pnpm
+        # 11.25.0 as of n8n@2.39.8) and pnpm 12 made `pnpm deploy` reject
+        # ambiguous peer resolutions (ERR_PNPM_DEPLOY_AMBIGUOUS_PEER), which
+        # breaks the `pnpm run build:docker` step. Reading the version out of
+        # the cloned source keeps us on whatever upstream tests against.
+        package_json_file: n8n-source/package.json
 
     - name: Get pnpm store directory
       run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"

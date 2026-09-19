@@ -168,17 +168,6 @@ jobs:
         # the cloned source keeps us on whatever upstream tests against.
         package_json_file: n8n-source/package.json
 
-    - name: Get pnpm store directory
-      run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-    - name: Setup pnpm cache
-      uses: actions/cache@v6
-      with:
-        path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('n8n-source/pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-
-
     - name: Install dependencies
       working-directory: n8n-source
       run: pnpm install --frozen-lockfile

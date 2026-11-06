@@ -143,7 +143,7 @@ jobs:
       contents: read
       packages: write
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
@@ -257,9 +257,10 @@ jobs:
             exit 1
           fi
 
-          # Stock n8n reports every one of these as false without a license.
+          # The unauthenticated settings endpoint only exposes these three
+          # license-gated flags. Stock n8n reports all of them as false.
           if ! curl -fsS http://localhost:5678/rest/settings \
-            | jq -e '.data.enterprise | .variables and .sharing and .ldap and .logStreaming and .advancedPermissions' >/dev/null; then
+            | jq -e '.data.enterprise | .saml and .ldap and .oidc' >/dev/null; then
             echo "::error title=Smoke test failed::$name booted but enterprise features are not enabled"
             curl -sS http://localhost:5678/rest/settings | jq '.data.enterprise' || true
             exit 1

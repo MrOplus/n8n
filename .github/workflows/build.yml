@@ -7,6 +7,10 @@ on:
         description: 'Build even if this version + bypass combination was already pushed'
         type: boolean
         default: false
+      push:
+        description: 'Push the image to GHCR. Uncheck for a dry run (build + smoke test only).'
+        type: boolean
+        default: true
       n8n_tag:
         description: 'n8n release tag to build (e.g. n8n@2.32.7). Leave empty for the latest stable release.'
         type: string
@@ -20,13 +24,14 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: mroplus/n8n
+  # Lowercased where used: GHCR rejects uppercase, and repository owners may have it.
+  IMAGE_NAME: ${{ github.repository }}
   IMAGE_TAG: enterprise
   # Deterministic local name for the image produced by `pnpm run build:docker`.
   # dockerize-n8n.mjs honours IMAGE_BASE_NAME/IMAGE_TAG, and only pushes directly
   # to a registry when the name has a registry host in it -- a two-segment name
   # like this one is `--load`ed into the local daemon instead, which is what the
-  # tag-and-push step below needs.
+  # smoke test and the tag-and-push step below need.
   LOCAL_IMAGE: n8nio/n8n:build
 
 jobs:
@@ -103,13 +108,21 @@ jobs:
       env:
         BUILD_KEY: ${{ steps.get_version.outputs.build_key }}
         FORCE_BUILD: ${{ inputs.force_build }}
+        # A dry run publishes nothing, so "already built" is no reason to skip it.
+        DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && !inputs.push }}
       run: |
         set -euo pipefail
+        image="$REGISTRY/${IMAGE_NAME,,}"
 
         if [ "$FORCE_BUILD" = "true" ]; then
           echo "🔁 force_build requested, building regardless of registry state"
           echo "should_build=true" >> "$GITHUB_OUTPUT"
-        elif docker manifest inspect "$REGISTRY/$IMAGE_NAME:$BUILD_KEY" >/dev/null 2>&1; then
+        elif [ "$DRY_RUN" = "true" ]; then
+          echo "🧪 dry run, building regardless of registry state"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+        elif docker manifest inspect "$image:$BUILD_KEY" >/dev/null 2>&1; then
+          # Only the final multi-arch manifest carries the bare build key; the
+          # per-arch tags are suffixed. So a hit here means every arch was built.
           echo "✅ $BUILD_KEY already exists in the registry, nothing to do"
           echo "should_build=false" >> "$GITHUB_OUTPUT"
         else
@@ -117,14 +130,26 @@ jobs:
           echo "should_build=true" >> "$GITHUB_OUTPUT"
         fi
 
-  build-and-push:
+  # Each architecture is built natively on its own runner. n8n's dependency tree
+  # contains architecture-specific binaries, and emulating arm64 under QEMU turns
+  # a ~40 minute build into hours, so there is no cross-build and no QEMU here.
+  build:
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
     - name: Checkout current repository
@@ -161,11 +186,11 @@ jobs:
     - name: Install pnpm
       uses: pnpm/action-setup@v6
       with:
-        # Deliberately NOT `version: latest`. n8n pins `packageManager` (pnpm
-        # 11.25.0 as of n8n@2.39.8) and pnpm 12 made `pnpm deploy` reject
-        # ambiguous peer resolutions (ERR_PNPM_DEPLOY_AMBIGUOUS_PEER), which
-        # breaks the `pnpm run build:docker` step. Reading the version out of
-        # the cloned source keeps us on whatever upstream tests against.
+        # Deliberately NOT `version: latest`. n8n pins `packageManager` and pnpm
+        # majors have broken `pnpm deploy` before (pnpm 12 and
+        # ERR_PNPM_DEPLOY_AMBIGUOUS_PEER), which breaks the `pnpm run build:docker`
+        # step. Reading the version out of the cloned source keeps us on whatever
+        # upstream tests against.
         package_json_file: n8n-source/package.json
 
     - name: Install dependencies
@@ -189,30 +214,22 @@ jobs:
     # driver builder, which sends dockerize-n8n.mjs down the
     # `docker buildx build --load` path. The runner's default builder uses the
     # `docker` driver, so the script takes the plain `docker build` path instead
-    # and the image lands in the local daemon for the tag-and-push step below.
-
-    - name: Log in to Container Registry
-      uses: docker/login-action@v4
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
+    # and the image lands in the local daemon for the steps below.
     - name: Build Docker image
       working-directory: n8n-source
       env:
         # Read by n8n's scripts/dockerize-n8n.mjs. IMAGE_TAG deliberately shadows
         # the workflow-level `enterprise` value for this step only; the GHCR tags
-        # are applied by the next step.
+        # are applied later.
         CONTAINER_ENGINE: docker
         IMAGE_BASE_NAME: n8nio/n8n
         IMAGE_TAG: build
       run: pnpm run build:docker
 
-    - name: Tag and push Docker image
-      env:
-        N8N_VERSION: ${{ needs.check-version.outputs.n8n_version }}
-        BUILD_KEY: ${{ needs.check-version.outputs.build_key }}
+    # Proves the image boots and that the bypass took effect at runtime, rather
+    # than trusting the source patches alone. Runs once as the default `node`
+    # user and once as an arbitrary UID in group 0 (what OpenShift does).
+    - name: Smoke test image
       run: |
         set -euo pipefail
 
@@ -222,23 +239,122 @@ jobs:
           exit 1
         fi
 
-        tags=(
-          "$REGISTRY/$IMAGE_NAME:$IMAGE_TAG"
-          "$REGISTRY/$IMAGE_NAME:latest"
-          "$REGISTRY/$IMAGE_NAME:$N8N_VERSION"
-          "$REGISTRY/$IMAGE_NAME:$BUILD_KEY"
-          "$REGISTRY/$IMAGE_NAME:$GITHUB_SHA"
-          "$REGISTRY/$IMAGE_NAME:n8n-$N8N_COMMIT_HASH"
-        )
+        smoke() {
+          local name="$1"; shift
+          docker run -d --name "$name" -p 5678:5678 \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            "$@" "$LOCAL_IMAGE" >/dev/null
 
-        for tag in "${tags[@]}"; do
-          echo "Tagging and pushing $tag"
-          docker tag "$LOCAL_IMAGE" "$tag"
-          docker push "$tag"
-        done
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:5678/healthz/readiness >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
 
-        echo "Successfully pushed n8n $N8N_VERSION to GHCR"
+          if ! curl -fsS http://localhost:5678/healthz/readiness >/dev/null 2>&1; then
+            echo "::error title=Smoke test failed::$name never became ready"
+            docker logs "$name" || true
+            exit 1
+          fi
+
+          # Stock n8n reports every one of these as false without a license.
+          if ! curl -fsS http://localhost:5678/rest/settings \
+            | jq -e '.data.enterprise | .variables and .sharing and .ldap and .logStreaming and .advancedPermissions' >/dev/null; then
+            echo "::error title=Smoke test failed::$name booted but enterprise features are not enabled"
+            curl -sS http://localhost:5678/rest/settings | jq '.data.enterprise' || true
+            exit 1
+          fi
+
+          echo "✅ $name: ready, enterprise features enabled"
+          docker rm -f "$name" >/dev/null
+        }
+
+        smoke smoke-default
+        smoke smoke-arbitrary-uid --user 12345:0
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'workflow_dispatch' || inputs.push
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Pushed under an arch-suffixed tag only. The `manifest` job merges them, so
+    # `enterprise`, `latest` and the bare build key never point at a half-built
+    # (single-arch) image.
+    - name: Push per-architecture image
+      if: github.event_name != 'workflow_dispatch' || inputs.push
+      env:
+        BUILD_KEY: ${{ needs.check-version.outputs.build_key }}
+        ARCH: ${{ matrix.arch }}
+      run: |
+        set -euo pipefail
+        tag="$REGISTRY/${IMAGE_NAME,,}:$BUILD_KEY-$ARCH"
+        docker tag "$LOCAL_IMAGE" "$tag"
+        docker push "$tag"
 
     - name: Clean up
       if: always()
-      run: docker system prune -f
+      run: docker system prune -af
+
+  manifest:
+    needs: [check-version, build]
+    if: github.event_name != 'workflow_dispatch' || inputs.push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Log in to Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create and push multi-arch manifests
+      env:
+        N8N_VERSION: ${{ needs.check-version.outputs.n8n_version }}
+        BUILD_KEY: ${{ needs.check-version.outputs.build_key }}
+        N8N_TAG: ${{ needs.check-version.outputs.n8n_tag }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        image="$REGISTRY/${IMAGE_NAME,,}"
+
+        # Short commit of the n8n source, resolved the same way the build jobs did.
+        n8n_commit_hash=$(git ls-remote https://github.com/n8n-io/n8n.git "refs/tags/$N8N_TAG^{}" "refs/tags/$N8N_TAG" | tail -n 1 | cut -f1)
+        if [ -z "$n8n_commit_hash" ]; then
+          echo "::error title=Commit lookup failed::could not resolve $N8N_TAG"
+          exit 1
+        fi
+
+        sources=("$image:$BUILD_KEY-amd64" "$image:$BUILD_KEY-arm64")
+
+        tags=(
+          "$image:$IMAGE_TAG"
+          "$image:latest"
+          "$image:$N8N_VERSION"
+          "$image:$BUILD_KEY"
+          "$image:$GITHUB_SHA"
+          "$image:n8n-$n8n_commit_hash"
+        )
+
+        tag_args=()
+        for tag in "${tags[@]}"; do tag_args+=(--tag "$tag"); done
+
+        docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+
+        # Fail the run rather than publish a manifest missing an architecture.
+        inspect=$(docker buildx imagetools inspect "$image:$BUILD_KEY" --format '{{json .Manifest}}')
+        platforms=$(echo "$inspect" | jq -r '[.manifests[].platform | select(.architecture != "unknown") | "\(.os)/\(.architecture)"] | sort | join(",")')
+        if [ "$platforms" != "linux/amd64,linux/arm64" ]; then
+          echo "::error title=Manifest incomplete::expected linux/amd64,linux/arm64 but found '$platforms'"
+          exit 1
+        fi
+
+        echo "Successfully pushed n8n $N8N_VERSION ($platforms) to $image"
+        printf '%s\n' "${tags[@]}"

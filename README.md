@@ -5,19 +5,37 @@ bypass patches applied, and pushes the resulting Docker image to GitHub Containe
 
 ## Workflow Overview
 
-`.github/workflows/build.yml` runs two jobs:
+`.github/workflows/build.yml` runs three jobs:
 
 **`check-version`**
 1. Resolves the latest stable n8n release tag (`n8n@X.Y.Z`)
 2. Computes a *build key* — `<version>-b<short hash of bypass.sh>`
 3. Skips the build if that exact key was already pushed to GHCR
 
-**`build-and-push`**
+**`build`** — runs once per architecture (`amd64` on `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm`)
 1. Clones n8n at the resolved release tag
 2. Installs dependencies with pnpm
 3. Applies `bypass.sh`, which verifies every patch and fails the build if any of them no longer apply
 4. Builds n8n (`pnpm run build`) and the Docker image (`pnpm run build:docker`)
-5. Tags and pushes the image to GHCR
+5. Smoke tests the image (see below)
+6. Pushes it under an architecture-suffixed tag (`<version>-b<hash>-amd64` / `-arm64`)
+
+**`manifest`**
+1. Merges the two per-architecture images into one multi-arch manifest
+2. Applies every public tag to that manifest
+3. Fails if the manifest does not contain exactly `linux/amd64` and `linux/arm64`
+
+Each architecture builds natively. n8n's dependency tree contains architecture-specific binaries,
+and emulating arm64 under QEMU is far slower than a native runner. Public tags only move after
+both architectures built, passed the smoke test, and were merged, so `enterprise` and `latest`
+never point at a single-arch image.
+
+### Smoke test
+
+Before anything is pushed, each image is booted twice: as the default `node` user and as an
+arbitrary UID (`--user 12345:0`, what OpenShift does). Each must reach `/healthz/readiness` and
+report `saml`, `ldap` and `oidc` as enabled on `/rest/settings` — all `false` on stock n8n. This
+checks that the bypass took effect at runtime, not only in the source.
 
 > Only immutable `n8n@X.Y.Z` tags are considered. Upstream also publishes moving `stable` and
 > `beta` releases; building from those produced non-reproducible images and permanently wedged
@@ -26,13 +44,14 @@ bypass patches applied, and pushes the resulting Docker image to GitHub Containe
 ## Triggers
 
 - Weekly schedule — Sundays at 00:00 UTC
-- Manual trigger via the Actions UI (`workflow_dispatch`), with two optional inputs:
+- Manual trigger via the Actions UI (`workflow_dispatch`), with optional inputs:
   - `n8n_tag` — build a specific release instead of the latest stable (e.g. `n8n@2.32.7`)
   - `force_build` — build even if the build key already exists in the registry
+  - `push` — set to `false` for a dry run: builds and smoke tests both architectures, pushes nothing
 
 ## Docker Image Tags
 
-Every successful build pushes:
+Every successful build pushes one multi-arch (`linux/amd64`, `linux/arm64`) manifest under each of these tags:
 
 | Tag | Meaning |
 | --- | --- |
@@ -102,5 +121,8 @@ volumeMounts:
 - Check the Actions tab for build logs
 - A run that finishes in seconds means `check-version` skipped the build — the build key already
   exists in GHCR. Re-run with `force_build` to rebuild anyway.
+- `Smoke test failed` means the image built but did not boot, or booted without the enterprise flags on;
+  the step prints the container logs or the `/rest/settings` payload.
+- Use `push: false` to rehearse a change end to end without publishing.
 - `Bypass patch drifted` errors mean upstream n8n moved something `bypass.sh` targets; the
   annotation names which patch needs updating.
